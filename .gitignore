@@ -1,0 +1,12 @@
+# Google Cloud credentials
+key.json
+*.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local input/output files
+*.xlsx
+*.csv

@@ -1,18 +1,17 @@
 import csv
 import re
+import logging
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
 from google.cloud import bigquery
 from google.cloud import storage
-
-
 
 
 PROJECT_ID = "gcp-test-data-engineer"
 DATASET_ID = "exam_rienthong"
 TABLE_ID = "task1_data_result"
-
 FULL_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
 FILE_NAME = "data_storytelling.csv"
@@ -29,9 +28,6 @@ BQ_SCHEMA = [
     bigquery.SchemaField("business_datetime", "TIMESTAMP"),
     bigquery.SchemaField("created_datetime", "TIMESTAMP"),
 ]
-
-
-
 
 BOOLEAN_VALUES = {
     "true",
@@ -69,11 +65,18 @@ HOLIDAY_ALIASES = {
 BKK = ZoneInfo("Asia/Bangkok")
 UTC = ZoneInfo("UTC")
 
+
+logging.basicConfig(level=logging.INFO,format="%(asctime)s - %(levelname)s - %(message)s")
+
+logger = logging.getLogger(__name__)
+
+
 def create_business_datetime(value):
     if value is None:
         return None
 
     return value.replace(tzinfo=BKK)
+
 
 def looks_like_timestamp(value):
     value = value.strip()
@@ -96,15 +99,12 @@ def looks_like_timestamp(value):
 
     return any(re.match(pattern, value) for pattern in patterns)
 
-def parse_row(row):
 
-    # --------------------------------------------------
+def parse_row(row):
     # In the case of 5 columns
     # Structure:
     # integer, decimal, timestamp, boolean, holiday
-    # --------------------------------------------------
     if len(row) == 5:
-
         return {
             "integer_col": row[0].strip(),
             "decimal_col": row[1].strip(),
@@ -113,11 +113,8 @@ def parse_row(row):
             "holiday_name": row[4].strip(),
         }
 
-    # --------------------------------------------------
     # More than 5 columns may indicate an unquoted comma
     # inside integer_col or holiday_name.
-    # --------------------------------------------------
-
     timestamp_index = None
 
     for i, value in enumerate(row):
@@ -125,12 +122,9 @@ def parse_row(row):
             timestamp_index = i
             break
 
-    # --------------------------------------------------
     # Timestamp at index 3 indicates that integer_col contains
     # an unquoted comma, e.g. 261,180.
-    # --------------------------------------------------
     if timestamp_index == 3:
-
         integer_col = row[0] + "," + row[1]
         decimal_col = row[2]
         boolean_col = row[4]
@@ -144,12 +138,9 @@ def parse_row(row):
             "holiday_name": holiday_name,
         }
 
-    # --------------------------------------------------
     # Timestamp is at index 2,
     # indicating that the extra comma is in holiday_name.
-    # --------------------------------------------------
     elif timestamp_index == 2:
-
         integer_col = row[0]
         decimal_col = row[1]
         boolean_col = row[3]
@@ -163,13 +154,8 @@ def parse_row(row):
             "holiday_name": holiday_name,
         }
 
-    # --------------------------------------------------
-    # timestamp is invalid or blank
-    # --------------------------------------------------
+    # Timestamp is invalid or blank
     else:
-
-
-
         boolean_index = None
 
         for i, value in enumerate(row):
@@ -194,9 +180,7 @@ def parse_row(row):
             holiday_name = ",".join(row[5:]).strip()
 
         else:
-            raise ValueError(
-                f"Cannot determine row structure: {row}"
-            )
+            raise ValueError(f"Cannot determine row structure: {row}")
 
         return {
             "integer_col": integer_col.strip(),
@@ -218,6 +202,7 @@ def clean_integer(value):
     except ValueError:
         return None
 
+
 def clean_boolean(value):
     value = value.strip().lower()
 
@@ -227,10 +212,16 @@ def clean_boolean(value):
     if value in {"true", "yes", "ok", "1"}:
         return True
 
+    if value in {"false", "no", "0"}:
+        return False
+
     if value == "-":
         return None
 
-    return False
+    logger.warning("Unrecognized boolean value: %r",value)
+
+    return None
+
 
 def clean_decimal(value):
     value = value.strip()
@@ -266,6 +257,7 @@ def clean_timestamp(value):
 
     return None
 
+
 def clean_holiday(value):
     value = value.strip()
 
@@ -296,61 +288,46 @@ def clean_holiday(value):
 
     return matches[0][1]
 
+
 def download_raw_data():
-    client = storage.Client.from_service_account_json("key.json")
-    bucket = client.bucket(BUCKET_NAME)
-    blob = bucket.blob(BLOB_NAME)
+    try:
+        client = storage.Client.from_service_account_json("key.json")
+        bucket = client.bucket(BUCKET_NAME)
+        blob = bucket.blob(BLOB_NAME)
+        blob.download_to_filename(FILE_NAME)
 
-    blob.download_to_filename(FILE_NAME)
+        logger.info("Downloaded: %s", FILE_NAME)
 
-    print(f"Downloaded: {FILE_NAME}")
+    except Exception:
+        logger.exception("Failed to download raw file from GCS")
+        raise
 
 
 def read_raw_data():
     rows = []
-
     created_datetime = datetime.now(UTC)
 
-    with open(
-        FILE_NAME,
-        "r",
-        encoding="utf-8-sig",
-        newline=""
-    ) as file:
-
+    with open(FILE_NAME,"r",encoding="utf-8-sig",newline="") as file:
         reader = csv.reader(file)
 
         next(reader)
 
         for line_number, row in enumerate(reader, start=2):
-
             parsed = parse_row(row)
 
             parsed["row_id"] = line_number - 1
 
-            parsed["integer_col"] = clean_integer(
-                parsed["integer_col"]
-            )
+            parsed["integer_col"] = clean_integer(parsed["integer_col"])
 
-            parsed["decimal_col"] = clean_decimal(
-                parsed["decimal_col"]
-            )
+            parsed["decimal_col"] = clean_decimal(parsed["decimal_col"])
 
-            parsed["timestamp_col"] = clean_timestamp(
-                parsed["timestamp_col"]
-            )
+            parsed["timestamp_col"] = clean_timestamp(parsed["timestamp_col"])
 
-            parsed["boolean_col"] = clean_boolean(
-                parsed["boolean_col"]
-            )
+            parsed["boolean_col"] = clean_boolean(parsed["boolean_col"])
 
-            parsed["holiday_name"] = clean_holiday(
-                parsed["holiday_name"]
-            )
+            parsed["holiday_name"] = clean_holiday(parsed["holiday_name"])
 
-            parsed["business_datetime"] = create_business_datetime(
-                parsed["timestamp_col"]
-            )
+            parsed["business_datetime"] = create_business_datetime(parsed["timestamp_col"])
 
             parsed["created_datetime"] = created_datetime
 
@@ -358,53 +335,67 @@ def read_raw_data():
 
     return rows
 
+
+def validate_data(rows):
+    if not rows:
+        raise ValueError("No rows were parsed from the raw file")
+
+    row_ids = [row["row_id"] for row in rows]
+
+    if len(row_ids) != len(set(row_ids)):
+        raise ValueError("Duplicate row_id found")
+
+    logger.info("Validation completed: %d rows",len(rows))
+
+
 def load_to_bigquery(rows):
+    try:
+        client = bigquery.Client.from_service_account_json("key.json")
 
-    client = bigquery.Client.from_service_account_json("key.json")
+        json_rows = []
 
-    json_rows = []
+        for row in rows:
+            row_copy = row.copy()
 
-    for row in rows:
-        row_copy = row.copy()
+            for column in [
+                "timestamp_col",
+                "business_datetime",
+                "created_datetime",
+            ]:
+                if row_copy[column] is not None:
+                    row_copy[column] = row_copy[column].isoformat()
 
-        for column in [
-            "timestamp_col",
-            "business_datetime",
-            "created_datetime",
-        ]:
-            if row_copy[column] is not None:
-                row_copy[column] = row_copy[column].isoformat()
+            json_rows.append(row_copy)
 
-        json_rows.append(row_copy)
+        job_config = bigquery.LoadJobConfig(schema=BQ_SCHEMA,write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,)
 
-    job_config = bigquery.LoadJobConfig(
-        schema=BQ_SCHEMA,
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-    )
+        job = client.load_table_from_json(json_rows,FULL_TABLE_ID,job_config=job_config,)
 
-    job = client.load_table_from_json(
-        json_rows,
-        FULL_TABLE_ID,
-        job_config=job_config,
-    )
+        job.result()
 
-    job.result()
+        table = client.get_table(FULL_TABLE_ID)
 
-    table = client.get_table(FULL_TABLE_ID)
+        logger.info("Loaded %d rows into %s", table.num_rows,FULL_TABLE_ID)
 
-    print(
-        f"Loaded {table.num_rows} rows "
-        f"into {FULL_TABLE_ID}"
-    )
+    except Exception:
+        logger.exception("Failed to load data into BigQuery")
+        raise
 
 
 def main():
+    logger.info("Starting Task 1 pipeline")
+
     download_raw_data()
 
     rows = read_raw_data()
-    print(f"Parsed {len(rows)} rows")
+
+    logger.info("Parsed %d rows",len(rows))
+
+    validate_data(rows)
 
     load_to_bigquery(rows)
+
+    logger.info("Task 1 pipeline completed successfully")
 
 
 if __name__ == "__main__":

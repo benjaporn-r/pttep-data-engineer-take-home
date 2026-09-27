@@ -4,12 +4,20 @@ from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from google.cloud import bigquery
+from google.cloud import storage
+
+
+
 
 PROJECT_ID = "gcp-test-data-engineer"
 DATASET_ID = "exam_rienthong"
 TABLE_ID = "task1_data_result"
 
 FULL_TABLE_ID = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+
+FILE_NAME = "data_storytelling.csv"
+BUCKET_NAME = "pttep-data-engineer-test"
+BLOB_NAME = "de-exam-task1/data_storytelling.csv"
 
 BQ_SCHEMA = [
     bigquery.SchemaField("row_id", "INTEGER"),
@@ -22,7 +30,6 @@ BQ_SCHEMA = [
     bigquery.SchemaField("created_datetime", "TIMESTAMP"),
 ]
 
-FILE_NAME = "data_storytelling.csv"
 
 
 
@@ -289,6 +296,15 @@ def clean_holiday(value):
 
     return matches[0][1]
 
+def download_raw_data():
+    client = storage.Client.from_service_account_json("key.json")
+    bucket = client.bucket(BUCKET_NAME)
+    blob = bucket.blob(BLOB_NAME)
+
+    blob.download_to_filename(FILE_NAME)
+
+    print(f"Downloaded: {FILE_NAME}")
+
 
 def read_raw_data():
     rows = []
@@ -344,7 +360,7 @@ def read_raw_data():
 
 def load_to_bigquery(rows):
 
-    client = bigquery.Client(project=PROJECT_ID)
+    client = bigquery.Client.from_service_account_json("key.json")
 
     json_rows = []
 
@@ -383,8 +399,9 @@ def load_to_bigquery(rows):
 
 
 def main():
-    rows = read_raw_data()
+    download_raw_data()
 
+    rows = read_raw_data()
     print(f"Parsed {len(rows)} rows")
 
     load_to_bigquery(rows)

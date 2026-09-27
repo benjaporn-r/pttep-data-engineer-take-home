@@ -36,6 +36,13 @@ Task 1 processes structured CSV data from Google Cloud Storage and loads the tra
 * Dataset: `exam_rienthong`
 * Table: `task1_data_result`
 
+The pipeline:
+
+1. Downloads the CSV file from GCS.
+2. Parses and cleans the source data.
+3. Loads the transformed data into BigQuery.
+
+
 The pipeline handles data cleaning and normalization, including:
 
 * Integer values with embedded commas

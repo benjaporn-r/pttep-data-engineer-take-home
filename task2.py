@@ -51,11 +51,7 @@ def transform_data(df):
 
     result = []
 
-    for start in range(
-        START_COLUMN,
-        START_COLUMN + 4 * BLOCK_SIZE,
-        BLOCK_SIZE
-    ):
+    for start in range(START_COLUMN,START_COLUMN + 4 * BLOCK_SIZE,BLOCK_SIZE):
         block_date = pd.Timestamp(df.iloc[0, start])
 
         days_in_month = calendar.monthrange(
@@ -90,10 +86,7 @@ def transform_data(df):
     result['date'] = result['date'].dt.date
     result['parameter'] = result['parameter'].dt.date
 
-    result['nomination'] = pd.to_numeric(
-        result['nomination'],
-        errors='coerce'
-    ).astype(float)
+    result['nomination'] = pd.to_numeric(result['nomination'],errors='coerce').astype(float)
 
     result['load_ts'] = datetime.now(timezone.utc)
 
